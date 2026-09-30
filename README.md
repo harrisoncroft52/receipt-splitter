@@ -19,12 +19,6 @@ Prefer something more fun? Tap **Game Mode** to deal the items out as cards arou
 
 It's a single file with no build step. Open `index.html` in a browser.
 
-## Put it online with GitHub Pages
-
-1. Create a new repository on GitHub and upload `index.html` (and this README).
-2. Go to **Settings → Pages**.
-3. Under **Build and deployment**, set **Source** to *Deploy from a branch*, pick the `main` branch and the `/ (root)` folder, then **Save**.
-4. After a minute the site is live at `https://<your-username>.github.io/<repository-name>/`.
 
 ## Add it to an iPhone home screen
 
