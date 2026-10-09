@@ -103,6 +103,7 @@ h2.sub{font-size:19px;font-weight:700;margin:0;letter-spacing:-.01em}
 .btn.game-btn{width:100%;margin-top:8px;padding:11px;border-radius:16px;border:0;color:#fff;font-size:16px;
   background:linear-gradient(100deg,#3A3160,#5B2C68 55%,#7A2E4E);box-shadow:0 6px 18px -8px rgba(91,44,104,.8);display:flex;align-items:center;justify-content:center;gap:8px;letter-spacing:.01em}
 .btn.game-btn small{font-weight:600;opacity:.75;font-size:13px}
+.btn.game-btn.off{background:#B9B6C6;box-shadow:none;color:#fff;opacity:.75}
 .link{border:0;background:none;padding:6px 2px;font-weight:600;color:var(--ink-soft);text-decoration:underline;text-underline-offset:3px;font-size:14px}
 .icon{border:0;background:none;width:36px;height:36px;border-radius:10px;font-size:18px;color:var(--ink-soft);display:inline-grid;place-items:center;flex:none}
 .icon:hover{background:rgba(45,42,64,.07);color:var(--ink)}
@@ -286,8 +287,6 @@ tr:last-child td{border-bottom:0}
 .seat .nm{border:0;background:var(--pc);color:var(--ink);border-radius:999px;padding:5px 11px;font-weight:800;font-size:13px;max-width:88px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;box-shadow:0 3px 8px rgba(0,0,0,.35)}
 .seat.hot .av{box-shadow:0 0 0 3px var(--gold),0 0 0 7px var(--pc),0 0 30px 8px var(--pc)}
 .seat.hot .nm{box-shadow:0 0 0 2px var(--gold)}
-.seat.skipseat .av{background:rgba(255,255,255,.1);border:2px dashed rgba(255,255,255,.6);box-shadow:none;display:grid;place-items:center;font-size:20px;color:#fff}
-.seat.skipseat .nm{background:rgba(255,255,255,.14);color:#fff}
 .seat .grp{display:grid;place-items:center;width:100%;height:100%;font-weight:900;font-size:22px;color:var(--ink)}
 .s-L{left:clamp(46px,10%,130px);top:50%}
 .s-R{left:calc(100% - clamp(46px,10%,130px));top:50%}
@@ -389,7 +388,7 @@ tr:last-child td{border-bottom:0}
 .charge i{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(255,224,138,.35);pointer-events:none}
 
 /* ending: hands on the table */
-.arena.ending .deck,.arena.ending .s-D,.arena.ending .s-DR{display:none}
+.arena.ending .deck,.arena.ending .s-D{display:none}
 .arena.ending .hand{height:60px;width:110px;margin-top:4px}
 .arena.ending .hand i{width:32px;height:44px;margin-left:-16px;font-size:17px;border-width:2px}
 .arena.ending .hand b{display:none}
@@ -574,7 +573,24 @@ body.rm .shut{transition:none}
 const PERSON_COLORS = ['#9DC3E6','#A9D08E','#FFD966','#F4B6C2','#F4B183','#D2B48C'];
 const SHARED_COLOR = '#C9A7EB';
 const WARN_COLOR = '#FF5050';
-const MIN_PEOPLE = 2, MAX_PEOPLE = 6;
+const MIN_PEOPLE = 2;
+const GAME_MAX_PEOPLE = 7;         // Game Mode seats: 7 players + Everyone fill the 8 swipe directions
+const BASE_PEOPLE = 6;             // the hand-picked colours/fonts; people past this get generated ones
+// Extra pastel colours for person 7 onwards (golden-angle hues, kept light like the first six)
+function hslHex(h, s, l){
+  s/=100; l/=100; const k=n=>(n+h/30)%12, a=s*Math.min(l,1-l);
+  const f=n=>Math.round(255*(l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1))))).toString(16).padStart(2,'0');
+  return '#'+f(0)+f(8)+f(4);
+}
+function ensurePeople(s, n){
+  while (PERSON_COLORS.length < n){
+    let h = (PERSON_COLORS.length*137.5 + 20) % 360;
+    if (h > 240 && h < 305) h = (h + 70) % 360;   // stay clear of the shared lavender
+    PERSON_COLORS.push(hslHex(h, 62, 78));
+  }
+  while (s.names.length < n) s.names.push('');
+  while (s.avatars.length < n) s.avatars.push(s.avatars.length);
+}
 const STORE_KEY = 'billSplitter.v1';
 const BOSS_CHANCE = 0.5;           // chance of a boss battle per Game Mode session
 const MARCH_LEAD = 3;              // Galloping march starts this many cards before the boss
@@ -628,8 +644,8 @@ function defaultSettings(){ return {sfx:true, sfxVol:0.7, music:true, musicVol:0
 function blankState(){
   return {
     count: 3,
-    names: Array.from({length:MAX_PEOPLE}, ()=>''),      // blank: fields show "Person 1" etc. as a placeholder
-    avatars: Array.from({length:MAX_PEOPLE}, (_,i)=>i),   // avatar "seed" per person; tap the avatar to change it
+    names: Array.from({length:BASE_PEOPLE}, ()=>''),      // blank: fields show "Person 1" etc. as a placeholder
+    avatars: Array.from({length:BASE_PEOPLE}, (_,i)=>i),   // avatar "seed" per person; tap the avatar to change it
     taxTipPercent: 0,
     payMode: 'one',          // 'one' = one person paid everything, 'bills' = several bills paid by different people
     paidInFullBy: null,      // the one payer (payMode 'one'), and the default for items with no payer of their own
@@ -654,9 +670,10 @@ function serialize(s){
 function deserialize(raw){
   const o = JSON.parse(raw), s = blankState();
   if (typeof o !== 'object' || !o) return null;
-  s.count = clamp(parseInt(o.count)||3, MIN_PEOPLE, MAX_PEOPLE);
-  if (Array.isArray(o.names)) o.names.slice(0,MAX_PEOPLE).forEach((n,i)=>{ if(typeof n==='string') s.names[i]=n; });
-  if (Array.isArray(o.avatars)) o.avatars.slice(0,MAX_PEOPLE).forEach((n,i)=>{ if(Number.isInteger(n)) s.avatars[i]=n; });
+  s.count = Math.max(MIN_PEOPLE, parseInt(o.count)||3);
+  ensurePeople(s, Math.max(s.count, Array.isArray(o.names)?o.names.length:0, Array.isArray(o.avatars)?o.avatars.length:0));
+  if (Array.isArray(o.names)) o.names.forEach((n,i)=>{ if(typeof n==='string') s.names[i]=n; });
+  if (Array.isArray(o.avatars)) o.avatars.forEach((n,i)=>{ if(Number.isInteger(n)) s.avatars[i]=n; });
   s.taxTipPercent = Number(o.taxTipPercent)||0;
   s.payMode = o.payMode === 'bills' ? 'bills' : 'one';
   s.paidInFullBy = Number.isInteger(o.paidInFullBy) && o.paidInFullBy < s.count ? o.paidInFullBy : null;
@@ -1602,7 +1619,7 @@ function renderSetup(){
       <div class="stepper">
         <button type="button" data-act="dec" aria-label="Fewer people" ${state.count<=MIN_PEOPLE?'disabled':''}>−</button>
         <output aria-live="polite">${state.count}</output>
-        <button type="button" data-act="inc" aria-label="More people" ${state.count>=MAX_PEOPLE?'disabled':''}>+</button>
+        <button type="button" data-act="inc" aria-label="More people">+</button>
       </div>
     </div>
     <ul class="names">
@@ -1634,7 +1651,7 @@ function renderSetup(){
     });
   });
   screenEl.querySelectorAll('[data-av]').forEach(b=> b.onclick = ()=>{
-    const p = +b.dataset.av; state.avatars[p] = (state.avatars[p] + MAX_PEOPLE + 1 + Math.floor(Math.random()*5)) % 997; persist();
+    const p = +b.dataset.av; state.avatars[p] = (state.avatars[p] + BASE_PEOPLE + 1 + Math.floor(Math.random()*5)) % 997; persist();
     b.innerHTML = avatarSVG(p);
     if (!motionReduced() && b.animate) b.animate([{transform:'scale(.7) rotate(-20deg)'},{transform:'scale(1.12)'},{transform:'none'}],{duration:320,easing:'ease-out'});
   });
@@ -1646,7 +1663,8 @@ function renderSetup(){
   screenEl.querySelector('[data-go-next]').onclick = ()=> go('items');
 }
 function setCount(n){
-  n = clamp(n, MIN_PEOPLE, MAX_PEOPLE);
+  n = Math.max(MIN_PEOPLE, n);
+  ensurePeople(state, n);
   if (n < state.count){
     for (const it of state.items){
       it.usedBy = new Set([...it.usedBy].filter(p=>p<n));
@@ -1693,7 +1711,7 @@ function renderItems(){
   </section>
   <div class="dock"><div>
     <button class="btn primary big" id="divideBtn">Divide</button>
-    <button class="btn game-btn" id="gameBtn">▶ Game Mode <small>assign items as a card game</small></button>
+    <button class="btn game-btn ${tooManyForGame()?'off':''}" id="gameBtn">▶ Game Mode <small>${tooManyForGame()?'(game mode for &lt;8 players)':'assign items as a card game'}</small></button>
   </div></div>`;
 
   const nameIn = $('#itemName'), costIn = $('#itemCost'), prev = $('#costPreview');
@@ -1768,7 +1786,7 @@ function renderItemList(){
   $('#itemCount').textContent = state.items.length ? `${state.items.length} item${state.items.length===1?'':'s'}` : '';
   $('#totalLine').innerHTML = state.items.length ? `<div class="total-line"><span>Total</span><span>${fmt(total)}</span></div>` : '';
   const off = !state.items.length || state.count < 2;
-  $('#divideBtn').disabled = off; $('#gameBtn').disabled = off;
+  $('#divideBtn').disabled = off; $('#gameBtn').disabled = off || tooManyForGame();
 }
 function commitEntry(){
   const nameIn = $('#itemName'), costIn = $('#itemCost');
@@ -1958,8 +1976,8 @@ function renderReview(){
     <div class="row between" style="flex-wrap:wrap;margin-bottom:12px;gap:8px">
       <h2 class="sub">Items · ${fmt(r.total)}</h2>
       <div class="btnrow">
-        <button type="button" class="btn game-btn" id="gmUn" ${unassignedCount?'':'disabled'}>▶ Game Mode: ${unassignedCount} unassigned</button>
-        <button type="button" class="btn ghost" id="gmAll" ${state.items.length?'':'disabled'}>▶ Replay all</button>
+        <button type="button" class="btn game-btn ${tooManyForGame()?'off':''}" id="gmUn" ${unassignedCount&&!tooManyForGame()?'':'disabled'} ${tooManyForGame()?'title="Game mode is for fewer than 8 players"':''}>▶ Game Mode: ${unassignedCount} unassigned</button>
+        <button type="button" class="btn ghost" id="gmAll" ${state.items.length&&!tooManyForGame()?'':'disabled'}>▶ Replay all</button>
       </div>
     </div>
     ${state.items.length ? `<div class="tw" id="gridWrap">
@@ -2080,7 +2098,7 @@ const DIRS = {
   L:{x:-1,y:0}, U:{x:0,y:-1}, R:{x:1,y:0}, D:{x:0,y:1},
   UL:{x:-.707,y:-.707}, UR:{x:.707,y:-.707}, DL:{x:-.707,y:.707}, DR:{x:.707,y:.707},
 };
-const PERSON_DIR = ['L','U','R','UL','UR','DL'];   // where each person sits = the swipe direction that gives them the card
+const PERSON_DIR = ['L','U','R','UL','UR','DL','DR'];   // where each person sits = the swipe direction that gives them the card
 const ENTRANCES = [
   {cls:'e-drop', dur:780, hit:.6}, {cls:'e-slideL', dur:720, hit:.64}, {cls:'e-spin', dur:740, hit:.7},
   {cls:'e-zoom', dur:600, hit:.55}, {cls:'e-slideR', dur:720, hit:.64}, {cls:'e-flip', dur:720, hit:.6}, {cls:'e-wobble', dur:900, hit:.3},
@@ -2100,12 +2118,12 @@ function targetFor(dir){
   switch (dir){
     case 'L': return {type:'person', p:0};
     case 'U': return {type:'person', p:1};
-    case 'R': return n>=3 ? {type:'person', p:2} : {type:'skip'};
+    case 'R': return n>=3 ? {type:'person', p:2} : null;
     case 'D': return {type:'all'};
     case 'UL': return n>=4 ? {type:'person', p:3} : null;
     case 'UR': return n>=5 ? {type:'person', p:4} : null;
     case 'DL': return n>=6 ? {type:'person', p:5} : null;
-    case 'DR': return eightWay() ? {type:'skip'} : null;
+    case 'DR': return n>=7 ? {type:'person', p:6} : null;
   }
   return null;
 }
@@ -2129,8 +2147,9 @@ function colorForTarget(t){
 }
 
 /* ---------- start / stop ---------- */
+function tooManyForGame(){ return state.count > GAME_MAX_PEOPLE; }
 function startGame(mode){
-  if (!state.items.length || state.count < 2) return;
+  if (!state.items.length || state.count < 2 || tooManyForGame()) return;
   let ids = state.items.filter(it => mode==='all' ? true : !usersOf(it,state).length).map(it=>it.id);
   if (!ids.length) ids = state.items.map(it=>it.id);
   // Boss battle: decided when dealing, so the music knows how many cards are left before it.
@@ -2213,7 +2232,7 @@ function runIntro(done){
       band.style.setProperty('--pc', p.color);
       band.innerHTML = `<div class="eyes">${avatarSVG(p.i,'eyes')}</div>
         <div class="ptag">PLAYER ${p.i+1}</div>
-        <div class="pname" style="font-family:'${PLAYER_FONTS[p.i]}',var(--display)">${esc(p.name)}</div>`;
+        <div class="pname" style="font-family:'${PLAYER_FONTS[p.i % PLAYER_FONTS.length]}',var(--display)">${esc(p.name)}</div>`;
       host.innerHTML = ''; host.append(band);
       bar.style.width = ((k+1)/P.length*100) + '%';
       Sound.play('sting', k);
@@ -2244,9 +2263,7 @@ function buildSeats(){
     if (t.type === 'all') return `<div class="seat s-${d}" data-dir="${d}" style="--pc:${SHARED_COLOR}">
         <button type="button" class="av" data-seat="all" aria-label="Everyone shares it" style="background:${conic}"><span class="grp">✦</span></button>
         <button type="button" class="nm tex" data-seat="all">Everyone</button></div>`;
-    return `<div class="seat skipseat s-${d}" data-dir="${d}">
-        <button type="button" class="av" data-seat="skip" aria-label="Skip for now">↻</button>
-        <button type="button" class="nm" data-seat="skip">Skip</button></div>`;
+    return '';
   }).join('');
   renderHands();
 }
@@ -2523,6 +2540,10 @@ function flyToSeats(el, dir, from, t, targets, it){
     const r0 = from.dx * 0.06, start = `translate(${from.dx}px, ${from.dy}px) rotate(${r0}deg)`;
     el.style.transition = 'none';
     if (motionReduced()){ const a = el.animate([{opacity:1},{opacity:0}], {duration:150, fill:'forwards'}); a.onfinish = res; return; }
+    if (t.type === 'skip'){
+      const a = el.animate([{transform:start, opacity:1}, {transform:'translate(0px, 24px) scale(.7)', opacity:0}], {duration:320, easing:'cubic-bezier(.5,0,.75,.35)', fill:'forwards'});
+      a.onfinish = res; a.oncancel = res; return;
+    }
     const multi = t.type === 'all' || t.type === 'set';
     if (!multi){
       const dest = seatCenter(t.type === 'person' ? PERSON_DIR[t.p] : dir);
@@ -2802,7 +2823,7 @@ document.addEventListener('keydown', e=>{
     if (t) act(t, map[key]); else nudge($('#deck'));
     return;
   }
-  if (/^[1-6]$/.test(key) && +key <= state.count){ e.preventDefault(); act({type:'person', p:+key-1}); return; }
+  if (/^[1-7]$/.test(key) && +key <= state.count){ e.preventDefault(); act({type:'person', p:+key-1}); return; }
   if (key === '0' || key === 'a'){ e.preventDefault(); act({type:'all'}); return; }
   if (key === 's'){ e.preventDefault(); openSplit(); return; }
   if (key === 'k'){ e.preventDefault(); act({type:'skip'}); return; }
